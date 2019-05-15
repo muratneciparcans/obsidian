@@ -1,0 +1,13 @@
+print("qwewqe".type() == "String");
+
+print("lenght of abc", "abc".length());
+
+print("lenght of 123456",123456.toString().length());
+
+print("10 random numbers between 0 to 100");
+
+i = 1;
+while(i <= 10) {
+    print("Random ", i, " : " , uniform(0, 100));
+    i = i + 1;
+}

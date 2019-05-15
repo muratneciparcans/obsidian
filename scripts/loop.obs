@@ -1,0 +1,5 @@
+i = 1;
+while(i <= 10) {
+    print("Random ", i, " : " , uniform(0, 100));
+    i = i + 1;
+}

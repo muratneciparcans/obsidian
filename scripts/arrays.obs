@@ -1,0 +1,16 @@
+
+a = ["This", 1, "is a test", ["test", [1, 2, 3]]];
+
+a[1] = 2;
+
+print(a);
+print(a[1]);
+
+a.pop();
+a.pop();
+a.pop();
+a.push("test").push([1,2,3]);
+print(a, a.length());
+
+a = [[[0]]];
+print(a[0][0][0] = "Nested Array Test");

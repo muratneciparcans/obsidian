@@ -1,0 +1,8 @@
+{
+	"name": "language",
+	"authors": [
+		"Murat Arcan"
+	],
+	"description": "A minimal D application.",
+	"license": "proprietary"
+}

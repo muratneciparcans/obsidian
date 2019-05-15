@@ -1,0 +1,16 @@
+complex_math = 3 + 4 * 2 / (1 - 5 ) * 2 / 2 + 4;
+print("3 + 4 * 2 / (1 - 5 ) * 2 / 2 + 4");
+
+print("Result:", complex_math);
+
+print("1 == 0 or 2 and 4 = ", 1 == 0 or 2 and 4);
+
+if(complex_math == 5)
+    print("True");
+else if(false)
+    print("Else if test");
+else{
+    print("False. expected value is : ", 5);
+}
+
+print(1.type() == complex_math.type());
