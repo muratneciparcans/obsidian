@@ -3,6 +3,20 @@
 	"authors": [
 		"Murat Arcan"
 	],
-	"description": "A minimal D application.",
-	"license": "proprietary"
+	"description": "The Obsidian programming language: lexer, parser, intermediate language and stack virtual machine.",
+	"license": "proprietary",
+	"configurations": [
+		{
+			"name": "application",
+			"targetType": "executable"
+		},
+		{
+			"name": "fcgi",
+			"targetType": "executable",
+			"targetName": "language-fcgi",
+			"versions": [
+				"fcgi"
+			]
+		}
+	]
 }

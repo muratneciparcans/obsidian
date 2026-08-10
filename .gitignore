@@ -1,0 +1,7 @@
+.dub/
+docs/
+/language
+/language-fcgi
+*.o
+._*
+.DS_Store

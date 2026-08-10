@@ -21,12 +21,15 @@ static this()
         }),
     ];
 
+    numberProperties = objectProperties.dup;
+
     stringProperties = objectProperties.dup;
     stringProperties["length"] = new RFunction("length", function OBSObject(OBSObject[] parameters) {
         const len = (cast(RString) parameters[0]).toString().walkLength;
         return new RNumber(len);
     });
     stringProperties["replace"] = new RFunction("replace", function OBSObject(OBSObject[] parameters) {
+        expectArgs("replace", parameters, 3);
         const str = (cast(RString) parameters[0]).toString().replace(parameters[1].toString(), parameters[2].toString());
         return new RString(str);
     });
@@ -45,6 +48,7 @@ static this()
         return new RNumber(len);
     });
     arrayProperties["push"] = new RFunction("push", function OBSObject(OBSObject[] parameters) {
+        expectArgs("push", parameters, 2);
         (cast(RArray) parameters[0]).push(parameters[1]);
         return parameters[0];
     });
@@ -52,6 +56,17 @@ static this()
         return (cast(RArray) parameters[0]).pop();
     });
 
+}
+
+/*
+ * Every built-in method receives its receiver as parameters[0], so `count`
+ * includes the bound object itself.
+*/
+void expectArgs(string name, OBSObject[] parameters, size_t count)
+{
+    if (parameters.length != count)
+        throw new Exception("%s %s parametre bekliyor, %s verildi.".format(name,
+                count - 1, parameters.length ? parameters.length - 1 : 0));
 }
 
 /*
@@ -68,6 +83,22 @@ class OBSObject
     OBSObject getType() const
     {
         return new RString("Object");
+    }
+
+    // D1 dönemindeki opAdd/opSub/opMul/opDiv artık derleyicide yok;
+    // modern opBinary'yi eski sanal metotlara yönlendiriyoruz.
+    OBSObject opBinary(string op)(OBSObject rhs)
+    {
+        static if (op == "+")
+            return opAdd(rhs);
+        else static if (op == "-")
+            return opSub(rhs);
+        else static if (op == "*")
+            return opMul(rhs);
+        else static if (op == "/")
+            return opDiv(rhs);
+        else
+            static assert(false, "Desteklenmeyen operatör: " ~ op);
     }
 
     OBSObject opAdd(OBSObject)
@@ -101,7 +132,7 @@ class OBSObject
         return false;
     }
 
-    long toNumber() const
+    double toNumber() const
     {
         throw new Exception("Geçerli bir sayı değil.");
     }
@@ -110,7 +141,11 @@ class OBSObject
     {
         if (auto p = name in properties)
         {
-            return (*cast(RFunction*) p).dup().setBind(this);
+            /* A method is copied before being bound so that two receivers
+               never share the same bind slot. */
+            if (auto func = cast(RFunction) *p)
+                return func.dup().setBind(this);
+            return *p;
         }
         throw new Exception("%s niteliği bulunmuyor.".format(name));
     }
@@ -122,11 +157,16 @@ class OBSObject
 
     override int opCmp(Object object) const
     {
-        if (this.toNumber() == (cast(OBSObject) object).toNumber())
+        auto other = cast(OBSObject) object;
+        if (other is null)
+            throw new Exception("Bu türler karşılaştırılamaz.");
+        const lhs = this.toNumber();
+        const rhs = other.toNumber();
+        if (lhs == rhs)
         {
             return 0;
         }
-        else if (this.toNumber() < (cast(OBSObject) object).toNumber())
+        else if (lhs < rhs)
         {
             return -1;
         }
@@ -140,6 +180,19 @@ class OBSObject
     {
         throw new Exception("Bu türü string yapamazsınız.");
     }
+}
+
+/*
+ * Binary operations are dynamically typed, so an operand of the wrong runtime
+ * type must raise a controlled Obsidian error instead of dereferencing a
+ * failed cast.
+*/
+private T expectType(T)(OBSObject value, string op, string expected)
+{
+    if (auto typed = cast(T) value)
+        return typed;
+    throw new Exception("%s işlemi %s bekliyor, %s verildi.".format(op, expected,
+            value is null ? "hiçbir değer" : value.getType().toString()));
 }
 
 class RFunction : OBSObject
@@ -217,6 +270,12 @@ override:
         return value;
     }
 
+    bool opEquals(Object object) const
+    {
+        auto other = cast(const RBoolean) object;
+        return other !is null && other.value == this.value;
+    }
+
     @property string toString() const
     {
         return to!string(value);
@@ -225,11 +284,11 @@ override:
 
 class RNumber : OBSObject
 {
-    long value;
-    this(long value)
+    double value;
+    this(double value)
     {
         this.value = value;
-        this.properties = objectProperties;
+        this.properties = numberProperties;
     }
 
 override:
@@ -243,39 +302,47 @@ override:
         return value != 0;
     }
 
-    long toNumber() const
+    double toNumber() const
     {
         return value;
     }
 
     bool opEquals(Object object) const
     {
-        return typeid(this) == typeid(object) && (cast(RNumber) object).toNumber() == this.toNumber();
+        auto other = cast(const RNumber) object;
+        return other !is null && other.value == this.value;
     }
 
     @property string toString() const
     {
+        /* Whole values are printed without a fractional part so that counters
+           and indexes keep reading as integers. */
+        if (value == cast(long) value && value > -9.0e18 && value < 9.0e18)
+            return to!string(cast(long) value);
         return to!string(value);
     }
 
     OBSObject opAdd(OBSObject t)
     {
-        return new RNumber(this.value + (cast(RNumber) t).value);
+        return new RNumber(this.value + expectType!RNumber(t, "Toplama", "sayı").value);
     }
 
     OBSObject opMul(OBSObject t)
     {
-        return new RNumber(this.value * (cast(RNumber) t).value);
+        return new RNumber(this.value * expectType!RNumber(t, "Çarpma", "sayı").value);
     }
 
     OBSObject opDiv(OBSObject t)
     {
-        return new RNumber(this.value / (cast(RNumber) t).value);
+        const divisor = expectType!RNumber(t, "Bölme", "sayı").value;
+        if (divisor == 0)
+            throw new Exception("Sıfıra bölme yapılamaz.");
+        return new RNumber(this.value / divisor);
     }
 
     OBSObject opSub(OBSObject t)
     {
-        return new RNumber(this.value - (cast(RNumber) t).value);
+        return new RNumber(this.value - expectType!RNumber(t, "Çıkartma", "sayı").value);
     }
 }
 
@@ -299,6 +366,20 @@ override:
         return value.length > 0;
     }
 
+    bool opEquals(Object object) const
+    {
+        auto other = cast(const RString) object;
+        return other !is null && other.value == this.value;
+    }
+
+    int opCmp(Object object) const
+    {
+        auto other = cast(const RString) object;
+        if (other is null)
+            throw new Exception("Metin yalnızca metinle karşılaştırılabilir.");
+        return this.value < other.value ? -1 : (this.value > other.value ? 1 : 0);
+    }
+
     @property string toString() const
     {
         return to!string(value);
@@ -306,7 +387,7 @@ override:
 
     OBSObject opAdd(OBSObject t)
     {
-        return new RString(this.value ~ (cast(RString) t).value);
+        return new RString(this.value ~ expectType!RString(t, "Toplama", "metin").value);
     }
 }
 
@@ -324,6 +405,8 @@ class RArray : OBSObject
     }
 
     OBSObject pop(){
+        if (array.length == 0)
+            throw new Exception("Boş diziden eleman çıkarılamaz.");
         auto ret = array.back();
         array.popBack();
         return ret;
@@ -333,18 +416,30 @@ class RArray : OBSObject
         return array.length;
     }
 
+    /* Index validation lives here so that opIndex and opIndexAssign report the
+       same controlled error instead of tripping a D bounds check. */
+    private size_t toIndex(OBSObject i)
+    {
+        const raw = i.toNumber();
+        if (raw != cast(long) raw)
+            throw new Exception("Dizi indeksi tam sayı olmalı: %s".format(raw));
+        if (raw < 0 || raw >= array.length)
+            throw new Exception("Dizi indeksi sınır dışı: %s (uzunluk %s)".format(
+                    cast(long) raw, array.length));
+        return cast(size_t) raw;
+    }
 
 override:
 
     OBSObject opIndex(OBSObject i) {
-        return array[i.toNumber()];
+        return array[toIndex(i)];
     }
 
     void opIndexAssign(ref OBSObject value, ref OBSObject key){
-        array[key.toNumber()] = value;
+        array[toIndex(key)] = value;
     }
 
-    @property int opDollar(size_t dim : 0)() { return array.length; }
+    @property int opDollar(size_t dim : 0)() { return cast(int) array.length; }
 
     OBSObject getType() const
     {
@@ -354,6 +449,19 @@ override:
     bool toBool() const
     {
         return array.length > 0;
+    }
+
+    bool opEquals(Object object) const
+    {
+        auto other = cast(const RArray) object;
+        if (other is null || other.array.length != this.array.length)
+            return false;
+        foreach (index, element; this.array)
+        {
+            if (element != other.array[index])
+                return false;
+        }
+        return true;
     }
 
     @property string toString() const

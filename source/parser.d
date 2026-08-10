@@ -110,7 +110,7 @@ private:
         switch (tokens[i].type)
         {
         case Type.number:
-            il.load(to!int(tokens[i].value));
+            il.load(to!double(tokens[i].value));
             i++;
             return RetType.expression;
         case Type.string:
@@ -128,7 +128,7 @@ private:
         case Type.identifier:
             string name = tokens[i].value;
             i++;
-            if (tokens[i].type == Type.equals)
+            if (i < tokens.length && tokens[i].type == Type.equals)
             {
                 i++;
                 calcIt();
@@ -161,6 +161,8 @@ private:
             {
                 il.apush();
             }
+            if (i >= tokens.length)
+                expectedError("] or ,");
             if (tokens[i].type == Type.rbracket)
             {
                 break;
@@ -224,6 +226,26 @@ private:
         int waitexp = 0; /// to check for mathematical expression
         while (i < tokens.length)
         {
+            /**
+                A minus in operand position is unary negation, not subtraction.
+                It is lowered to 0 - operand so that no new opcode is needed.
+                waitexp == 1 means an operand was already read, so a minus there
+                is the binary operator and must fall through to the table below.
+            */
+            if (waitexp != 1 && tokens[i].type == Type.minus)
+            {
+                i++;
+                if (i >= tokens.length)
+                    expectedError("An expression after unary '-'");
+                il.load(0.0);
+                il.push();
+                if (getIt() != RetType.expression)
+                    throw new Exception("An expression was expected after unary '-' but %s got".format(
+                            tokens[i].type));
+                il.newcode(interlang.il.sub);
+                waitexp = 1;
+                continue;
+            }
             if (getIt() == RetType.expression) {
                 // op_precedences.writeln();
                 waitexp = 1; /// We're reading our first statement
@@ -263,7 +285,7 @@ private:
             i++;
         else
             return false;
-        if (tokens[i].type == Type.identifier)
+        if (i < tokens.length && tokens[i].type == Type.identifier)
         {
             il.getProperty(tokens[i].value);
             i++;
@@ -311,6 +333,8 @@ private:
         else
             return false;
         il.push();
+        if (i >= tokens.length)
+            throw new Exception("Parenthesis expected to be closed.");
         if (tokens[i].type == Type.rparen)
             goto end; /// If the parentheses are closed, they jump to the end without going through the loop.
         while (i < tokens.length)
@@ -324,7 +348,7 @@ private:
                 pcount++;
                 il.pushparam();
             }
-            if (tokens[i].type == Type.comma)
+            if (i < tokens.length && tokens[i].type == Type.comma)
             { /// Check the 'comma' for the next parameter.
                 i++;
                 continue;
@@ -438,7 +462,9 @@ private:
 
     void expectingLParen()
     {
-        if (tokens[i].type == Type.lparen)
+        if (i >= tokens.length)
+            throw new Exception("A parenthesis was expected.");
+        else if (tokens[i].type == Type.lparen)
             i++;
         else
             throw new Exception("While waiting for an parentheses, %s got".format(tokens[i].type));

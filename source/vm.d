@@ -4,6 +4,7 @@ import interlang;
 import obsobject;
 import builtin;
 import std.stdio;
+import core.memory : GC;
 
 // OBSObject
 
@@ -25,9 +26,30 @@ class VirtualMachine
     {
         // ilcode.codes.writeln();
         string tmp; // A string to use temporarily
-        OBSObject* stack = cast(OBSObject*) new OBSObject[1024 * 128]; // Object
+        /* The stack is walked through a raw pointer, so the slice itself is
+           registered as a GC root: otherwise the collector could free the
+           buffer while the machine is still running on it. */
+        enum size_t stackSlots = 1024 * 128; // Object stack, 128K slots
+        auto stackBuffer = new OBSObject[stackSlots];
+        GC.addRoot(stackBuffer.ptr);
+        scope (exit)
+            GC.removeRoot(stackBuffer.ptr);
+        OBSObject* stackBase = stackBuffer.ptr;
+        OBSObject* stackLimit = stackBase + stackSlots;
+        OBSObject* stack = stackBase;
 
-        
+        /* Every push and pop stays inside the allocated range. */
+        void needRoom()
+        {
+            if (stack + 1 >= stackLimit)
+                throw new Exception("VM yığını taştı (%s slot).".format(stackSlots));
+        }
+
+        void needValues(size_t count)
+        {
+            if (stack < stackBase + count)
+                throw new Exception("VM yığınında %s değer bekleniyordu.".format(count));
+        }
 
         OBSObject current; // Current object
         OBSObject[string] variables; // Variables
@@ -66,36 +88,46 @@ class VirtualMachine
             goto start;
             /** put the active object inside stack */
         case il.newarray:
+            needRoom();
             stack++;
             *stack = new RArray;
             IP++;
             goto start;
         case il.apush:
-            (*cast(RArray*) stack).push(current);
+            needValues(1);
+            auto target = cast(RArray) *stack;
+            if (target is null)
+                throw new Exception("apush yalnızca dizi üzerinde çalışır.");
+            target.push(current);
             IP++;
             goto start;
         case il.opIndex:
+            needValues(1);
             current = (*cast(OBSObject*) stack)[current];
             stack--;
             IP++;
             goto start;
         case il.opIndexAssign:
+            needValues(2);
             (*cast(OBSObject*)(stack - 1))[*cast(OBSObject*) stack] = current;
             stack-=2;
             IP++;
             goto start;
         case il.astore:
+            needValues(1);
             current = *stack;
             stack--;
             IP++;
             goto start;
         case il.push:
+            needRoom();
             stack++;
             *stack = current;
             IP++;
             goto start;
             /**  put active object to the stack as function parameter */
         case il.pushparam:
+            needRoom();
             stack++;
             *stack = current;
             IP++;
@@ -104,6 +136,7 @@ class VirtualMachine
 			 *  Subtract the active object from the object loaded into the stack and delete the object from the stack
 			 */
         case il.sub:
+            needValues(1);
             current = *stack - current;
             --stack;
             IP++;
@@ -139,13 +172,14 @@ class VirtualMachine
         case il.jmp:
             IP++;
             IP = ilcode.codes.ptr + *cast(size_t*) IP;
-            writeln("Object");
-            writeln(*IP);
+            // writeln("Object");
+            // writeln(*IP);
             goto start;
             /** + Operation
 			 *  Add the active object with the object loaded into the stack and delete the object from stack.
 			 */
         case il.add:
+            needValues(1);
             current = *stack + current;
             stack--;
             IP++;
@@ -154,6 +188,7 @@ class VirtualMachine
 			 *  Split the object inserted into the active object stack into the and delete the object from stack.
 			 */
         case il.div:
+            needValues(1);
             current = *stack / current;
             stack--;
             IP++;
@@ -162,36 +197,43 @@ class VirtualMachine
 			 *  Multiply the active object with the object loaded into the Stack and delete the object from stack.
 			 */
         case il.mul:
+            needValues(1);
             current = *stack * current;
             stack--;
             IP++;
             goto start;
         case il.eq:
+            needValues(1);
             current = *stack == current ? _true : _false;
             stack--;
             IP++;
             goto start;
         case il.neq:
+            needValues(1);
             current = *stack == current ? _false : _true;
             stack--;
             IP++;
             goto start;
         case il.lt:
+            needValues(1);
             current = *stack < current ? _true : _false;
             stack--;
             IP++;
             goto start;
         case il.le:
+            needValues(1);
             current = *stack <= current ? _true : _false;
             stack--;
             IP++;
             goto start;
         case il.gt:
+            needValues(1);
             current = *stack > current ? _true : _false;
             stack--;
             IP++;
             goto start;
         case il.ge:
+            needValues(1);
             current = *stack >= current ? _true : _false;
             stack--;
             IP++;
@@ -200,8 +242,23 @@ class VirtualMachine
 			 *  Take the parameters of the function to be called from the stack, throw them into an array and empty the stack
 			 *  Note : The parameter number of the function to be called comes within IL output
 			 */
+            /** Non short-circuiting logical operations. The parser lowers
+                and/or to jz/jnz, so these exist for IL produced by other means. */
+        case il.and:
+            needValues(1);
+            current = (*stack).toBool() ? current : *stack;
+            stack--;
+            IP++;
+            goto start;
+        case il.or:
+            needValues(1);
+            current = (*stack).toBool() ? *stack : current;
+            stack--;
+            IP++;
+            goto start;
         case il.call:
             IP++;
+            needValues(*cast(size_t*) IP + 1);
             current = (*(stack - *cast(size_t*) IP))(
                     (stack - *cast(size_t*) IP + 1)[0 .. *cast(size_t*) IP]);
             stack -= *cast(size_t*) IP + 1;

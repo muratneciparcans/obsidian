@@ -7,79 +7,110 @@ import std.getopt;
 import std.concurrency;
 
 
-// string readFromStdIn()
-// {
-//     string output;
-//     char[] buf;
+string readFromStdIn()
+ {
+    import std.stdio : stdin;
 
-//     while (stdin.readln(buf))
-//     {
-//         output ~= buf;
-//     }
-//     return output;
-// }
+    string output;
+     char[] buf;
+
+    while (stdin.readln(buf))
+     {
+        output ~= buf;
+     }
+     return output;
+ }
 
 
-// WEB Based
+/* Both execution modes drive the same parser and virtual machine; only the
+   surrounding I/O differs. Build the web one with:
 
-void threadMain(ubyte n)
+       dub build --config=fcgi
+*/
+version (fcgi)
 {
+    // WEB Based
 
-	// init();
-    while(accept)
+    void threadMain(ubyte n)
     {
-		writeln("after accept");
-    	write("Content-Type: text/html; charset=UTF-8\r\n\r\n");
+        while(accept)
+        {
+            write("Content-Type: text/html; charset=UTF-8\r\n\r\n");
 
-    	foreach(name, value; request.params) {
-            if(name == "SCRIPT_FILENAME"){
+            foreach(name, value; request.params) {
+                if(name == "SCRIPT_FILENAME") {
 
-                Parser lex = new Parser(); // Create a new object for Parser
-                VirtualMachine vm = new VirtualMachine(); // Create a new object for Virtual Machine
+                    Parser lex = new Parser(); // Create a new object for Parser
+                    VirtualMachine vm = new VirtualMachine(); // Create a new object for Virtual Machine
 
-                string code; // code file
-                code = cast(string) std.file.read(value);
+                    try
+                    {
+                        string code; // code file
+                        code = cast(string) std.file.read(value);
 
-                auto ir = lex.parse(code); // Parsing / Lexing
-                vm.execute(ir); // IR to Machine level execution
+                        auto ir = lex.parse(code); // Parsing / Lexing
+                        vm.execute(ir); // IR to Machine level execution
+                    }
+                    catch (Exception error)
+                    {
+                        /* A failing script must not take the whole
+                           persistent process down with it. */
+                        write("Hata: " ~ error.msg ~ "\n");
+                    }
+                }
             }
-    	    // writeln(name ~" : " ~ value);
-    	}
-    	
-    	finish;
+
+            finish;
+        }
+    }
+
+    void main()
+    {
+        init();
+        for (ubyte i = 0; i < 8; i++)
+        {
+            spawn(&threadMain, i);
+        }
     }
 }
-
-void main() 
+else
 {
-    for (ubyte i=0; i<8; i++) {
-        spawn(&threadMain, i);
+    // Terminal Based
+
+    int main(string[] args) {
+        import std.stdio : stderr;
+
+        auto helpInformation = getopt(args, config.stopOnFirstNonOption);
+        string code;
+
+        if (helpInformation.helpWanted)
+        {
+            defaultGetoptPrinter("Usage: language [script.obs]", helpInformation.options);
+            return 0;
+        }
+        else if (args.length == 1)
+        {
+            code = readFromStdIn();
+        }
+        else
+        {
+            code = cast(string) std.file.read(args[1]);
+        }
+        Parser lex = new Parser();
+        VirtualMachine vm = new VirtualMachine();
+
+        /* Lexer, parser and runtime all report problems as exceptions, so the
+           driver turns them into one readable line instead of a stack trace. */
+        try
+        {
+            auto ir = lex.parse(code);
+            vm.execute(ir);
+        }
+        catch (Exception error)
+        {
+            stderr.writeln("Hata: ", error.msg);
+            return 1;
+        }
+        return 0;
     }
 }
-
-// Terminal Based
-
-// void main(string[] args)
-// {
-//     auto helpInformation = getopt(args, config.stopOnFirstNonOption,);
-//     string code;
-
-//     if (args.length == 1)
-//     {
-//         code = readFromStdIn();
-//     }
-//     else if (helpInformation.helpWanted)
-//     {
-//         defaultGetoptPrinter("Some information about the program.", helpInformation.options);
-//     }
-//     else
-//     {
-//         code = cast(string) std.file.read(args[1]);
-//     }
-//     Parser lex = new Parser();
-//     VirtualMachine vm = new VirtualMachine();
-
-//     auto ir = lex.parse(code);
-//     ir.writeln();
-//     vm.execute(ir);
-// }

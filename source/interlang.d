@@ -54,7 +54,7 @@ class IL{
 	}
 
 	/* load functions */
-	void load(int val){
+	void load(double val){
 		load(new RNumber(val));
 	}
 	void load(bool val){

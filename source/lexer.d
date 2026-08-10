@@ -66,17 +66,40 @@ class Lexer{
 					tmp ~= *cp;
 					cp++;
 				} while(cp < end && isDigit(*cp));
+				/* A dot followed by a digit is the fractional part of this
+				   number; a dot followed by anything else is a property access. */
+				if(cp + 1 < end && *cp == '.' && isDigit(*(cp + 1))){
+					do{
+						tmp ~= *cp;
+						cp++;
+					} while(cp < end && isDigit(*cp));
+				}
 				tokens ~= Token(Type.number, tmp);
 			}else if(*cp == '\"'){
 				// We get a string in the form of "text".
 				string tmp;
 				cp++;
-				do{
+				while(cp < end && *cp != '\"'){ // We put all the characters until the quotation marks come in.
+					if(*cp == '\\' && cp + 1 < end){
+						cp++;
+						switch(*cp){
+							case 'n': tmp ~= '\n'; break;
+							case 't': tmp ~= '\t'; break;
+							case 'r': tmp ~= '\r'; break;
+							case '\"': tmp ~= '\"'; break;
+							case '\\': tmp ~= '\\'; break;
+							default: throw new Exception("Unknown escape sequence: \\%s".format(*cp));
+						}
+						cp++;
+						continue;
+					}
 					tmp ~= *cp;
 					cp++;
-				} while(cp < end && *cp!='\"'); // We put all the characters until the quotation marks come in.
-					cp++;
-					tokens ~= Token(Type.string, tmp);
+				}
+				if(cp >= end)
+					throw new Exception("Unterminated string literal.");
+				cp++;
+				tokens ~= Token(Type.string, tmp);
 			}else if(*cp == '.'){
 				tokens ~= Token(Type.dot);
 				cp++;
@@ -98,7 +121,7 @@ class Lexer{
 			}else if(*cp == '/'){
 				cp++;
 				/* "//" Ignore comment lines. */
-				if(*cp == '/'){
+				if(cp < end && *cp == '/'){
 					while(cp < end && *cp != '\n'){
 						cp++;
 					}
@@ -112,16 +135,16 @@ class Lexer{
 				}else{
                     tokens ~= Token(Type.equals);
 				}
-			}else if(*cp == '!' && *(cp + 1) == '='){
+			}else if(*cp == '!' && cp + 1 < end && *(cp + 1) == '='){
                 tokens ~= Token(Type.neq);
                 cp+=2;
-			}else if(*cp == '<' && *(cp + 1) == '='){
+			}else if(*cp == '<' && cp + 1 < end && *(cp + 1) == '='){
                 tokens ~= Token(Type.le);
                 cp+=2;
 			}else if(*cp == '<'){
                 tokens ~= Token(Type.lt);
                 cp++;
-			}else if(*cp == '>' && *(cp + 1) == '='){
+			}else if(*cp == '>' && cp + 1 < end && *(cp + 1) == '='){
                 tokens ~= Token(Type.ge);
                 cp+=2;
 			}else if(*cp == '>'){
